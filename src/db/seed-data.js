@@ -11,6 +11,12 @@ export const users = [
   { name: 'Alan Turing', email: 'alan@test.dev' },
 ];
 
+// Completed through the real submit service so the leaderboard has data. Ada is left fresh for the demo.
+export const demoAttempts = [
+  { email: 'grace@test.dev', quiz: 'nigeria-quick-facts', correct: 6 }, // perfect: 6 × 10 + 20 = 80 XP
+  { email: 'alan@test.dev', quiz: 'digital-literacy-basics', correct: 9 }, // 9 × 10 = 90 XP
+];
+
 export const badges = [
   {
     code: 'FIRST_STEPS',
