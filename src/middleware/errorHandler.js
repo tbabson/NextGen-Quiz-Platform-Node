@@ -10,8 +10,10 @@ export function notFoundHandler(req, _res, next) {
  * Turns every error into {"error": {"code", "message", "details"}}. Unknown errors are logged with
  * their stack but answered with a generic 500 so internals never leak to clients.
  */
-// Express identifies error middleware by its four parameters, so `_next` must stay.
-export function errorHandler(err, req, res, _next) {
+export function errorHandler(err, req, res, next) {
+  // A response is already streaming; only Express's default handler can abort it safely.
+  if (res.headersSent) return next(err);
+
   const error = normalise(err);
 
   if (error.status >= 500) {

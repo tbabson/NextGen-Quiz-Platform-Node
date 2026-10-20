@@ -4,7 +4,7 @@ import { pingDatabase } from './health.service.js';
 export async function health(_req, res) {
   const databaseUp = await pingDatabase();
   if (!databaseUp) {
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Database is unreachable.', [{ database: 'down' }]);
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Database is unreachable.', [{ field: 'database', message: 'down' }]);
   }
 
   res.set('Cache-Control', 'no-store').json({

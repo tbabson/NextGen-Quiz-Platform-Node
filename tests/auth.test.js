@@ -139,6 +139,19 @@ describe('POST /api/auth/logout', () => {
   });
 });
 
+describe('CSRF origin check on cookie routes', () => {
+  it('refuses refresh and logout from an origin outside the allow-list, without touching the session', async () => {
+    const { cookie } = await registerUser(app);
+
+    const forged = await request(app).post('/api/auth/refresh').set('Origin', 'https://evil.example').set('Cookie', cookie).expect(403);
+    expect(forged.body.error.code).toBe('FORBIDDEN');
+    await request(app).post('/api/auth/logout').set('Origin', 'https://evil.example').set('Cookie', cookie).expect(403);
+
+    // The session is intact, and the real client origin still works.
+    await request(app).post('/api/auth/refresh').set('Origin', 'http://localhost:5173').set('Cookie', cookie).expect(200);
+  });
+});
+
 describe('auth rate limiting', () => {
   it('returns 429 in the shared error shape once the per-IP limit is exceeded', async () => {
     const limitedApp = createApp({ rateLimits: { authPerMinute: 2 } });

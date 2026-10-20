@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -52,6 +53,43 @@ describe('cross-cutting HTTP behaviour', () => {
 
     const blocked = await request(app).get('/api/health').set('Origin', 'https://evil.example');
     expect(blocked.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
+describe('database safety limits', () => {
+  it('applies statement and idle-in-transaction timeouts to pooled connections', async () => {
+    const { rows } = await db.raw("SELECT current_setting('statement_timeout') AS st, current_setting('idle_in_transaction_session_timeout') AS idle");
+    expect(rows[0]).toEqual({ st: '10s', idle: '10s' });
+  });
+});
+
+describe('environment validation (fail fast at boot)', () => {
+  const boot = (overrides) =>
+    spawnSync(process.execPath, ['-e', "import('./src/config/env.js').then(() => console.log('BOOTED'))"], {
+      env: { ...process.env, NODE_ENV: 'test', ...overrides },
+      encoding: 'utf8',
+    });
+
+  it('boots with a valid configuration', () => {
+    expect(boot({}).stdout).toContain('BOOTED');
+  });
+
+  it('refuses a short JWT secret', () => {
+    const result = boot({ JWT_ACCESS_SECRET: 'too-short' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/JWT_ACCESS_SECRET/);
+  });
+
+  it('refuses the placeholder secret in production', () => {
+    const result = boot({ NODE_ENV: 'production', JWT_ACCESS_SECRET: 'change-me-to-a-long-random-string-of-32-plus-chars' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/Placeholder secret/);
+  });
+
+  it('refuses SameSite=None cookies without Secure', () => {
+    const result = boot({ COOKIE_SAMESITE: 'none', COOKIE_SECURE: 'false' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/COOKIE_SECURE=true/);
   });
 });
 

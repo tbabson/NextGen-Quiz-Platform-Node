@@ -36,6 +36,17 @@ const envSchema = z.object({
 
   RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_SUBMIT_PER_MIN: z.coerce.number().int().positive().default(10),
+}).superRefine((env, ctx) => {
+  const production = env.NODE_ENV === 'production';
+  const secureCookies = env.COOKIE_SECURE ?? production;
+
+  if (production && /change-me|dev-only|test-only/.test(env.JWT_ACCESS_SECRET)) {
+    ctx.addIssue({ code: 'custom', path: ['JWT_ACCESS_SECRET'], message: 'Placeholder secret used in production; generate a random one.' });
+  }
+  // Browsers drop SameSite=None cookies that are not Secure, which would silently break refresh.
+  if (env.COOKIE_SAMESITE === 'none' && !secureCookies) {
+    ctx.addIssue({ code: 'custom', path: ['COOKIE_SAMESITE'], message: 'COOKIE_SAMESITE=none requires COOKIE_SECURE=true (HTTPS).' });
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);
