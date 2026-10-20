@@ -1,0 +1,39 @@
+# Local full stack: PostgreSQL 16 + the API. `docker compose up --build`, then http://localhost:4000/api/health
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quiz
+      POSTGRES_PASSWORD: quiz
+      POSTGRES_DB: quiz
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quiz -d quiz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://quiz:quiz@db:5432/quiz
+      # Local-only value; production secrets come from the host's secret store.
+      JWT_ACCESS_SECRET: local-compose-jwt-secret-0123456789abcdefghijkl
+      CORS_ORIGIN: http://localhost:5173
+      # Plain HTTP locally, so cookies cannot be Secure; same-site in dev, so Strict works.
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: strict
+      SEED_ON_START: "true"
+
+volumes:
+  pgdata:

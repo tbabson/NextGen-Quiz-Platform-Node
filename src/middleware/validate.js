@@ -37,6 +37,12 @@ export function toFieldErrors(zodError, prefix = '') {
   }));
 }
 
+/** ['answers', 2, 'option_id'] → 'answers[2].option_id' */
 function formatPath(path) {
-  return path.reduce((acc, segment) => (typeof segment === 'number' ? `${acc}[${segment}]` : acc ? `${acc}.${segment}` : segment), '');
+  let formatted = '';
+  for (const segment of path) {
+    if (typeof segment === 'number') formatted += `[${segment}]`;
+    else formatted += formatted ? `.${segment}` : segment;
+  }
+  return formatted;
 }

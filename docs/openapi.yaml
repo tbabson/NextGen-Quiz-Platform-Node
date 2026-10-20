@@ -1,0 +1,603 @@
+openapi: 3.1.0
+info:
+  title: PUNCH NextGen Quiz & Rewards API
+  version: 1.0.0
+  description: |
+    REST API for the PUNCH NextGen quiz platform. Students register, take quizzes, earn XP and badges,
+    and compete on a leaderboard. Scores are always computed on the server.
+
+    **Auth:** `POST /auth/login` (or `/auth/register`) returns a 15-minute access token in the body and a
+    7-day refresh token in an httpOnly cookie scoped to `/api/auth`. Send the access token as
+    `Authorization: Bearer <token>`; call `POST /auth/refresh` (with credentials) to rotate both.
+    Clients must not issue concurrent refreshes: reusing a rotated refresh token revokes the session.
+
+    **Errors** always use the `Error` shape.
+  license:
+    name: Proprietary (recruitment assessment)
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://localhost:4000/api
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Registration, login and cookie-based refresh-token sessions.
+  - name: Quizzes
+    description: Browse quizzes, fetch questions and submit answers for server-side grading.
+  - name: Attempts
+    description: The caller's own quiz history and per-question results.
+  - name: Gamification
+    description: XP, badges, dashboard and leaderboard.
+  - name: Health
+    description: Liveness and database connectivity.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create an account and start a session
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Account created. Sets the `refresh_token` cookie.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Email already registered (`EMAIL_TAKEN`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Logged in. Sets the `refresh_token` cookie.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401':
+          description: Wrong email or password (`INVALID_CREDENTIALS`); identical for unknown emails.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate the refresh token and get a new access token
+      operationId: refreshSession
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: New session. The presented refresh token is now revoked.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401':
+          description: Missing, unknown, expired, revoked or reused refresh token (`INVALID_REFRESH_TOKEN`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the refresh token and clear the cookie
+      operationId: logout
+      security:
+        - refreshCookie: []
+      responses:
+        '204': { description: Logged out (also returned when there was no session). }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /me/dashboard:
+    get:
+      tags: [Gamification]
+      summary: The caller's dashboard
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /quizzes:
+    get:
+      tags: [Quizzes]
+      summary: List quizzes with the caller's completion status
+      operationId: listQuizzes
+      responses:
+        '200':
+          description: Quizzes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [quizzes]
+                properties:
+                  quizzes:
+                    type: array
+                    items: { $ref: '#/components/schemas/QuizSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /quizzes/{id}:
+    get:
+      tags: [Quizzes]
+      summary: Get a quiz to play (never includes correct answers)
+      operationId: getQuiz
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Quiz with questions and options
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuizForPlay' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /quizzes/{id}/submit:
+    post:
+      tags: [Quizzes]
+      summary: Submit answers; the server grades them and awards XP and badges
+      operationId: submitQuiz
+      description: |
+        Runs in one transaction: lock user → insert attempt → add XP → evaluate badges → commit.
+
+        - Same `Idempotency-Key` again → `200` with the stored result and `Idempotent-Replayed: true`.
+        - Quiz already completed under a different key → `409 QUIZ_ALREADY_COMPLETED` (no XP).
+        - Every question must be answered exactly once with one of its own options, else `422`.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated unique key per submission (a UUID is ideal). Reuse it when retrying.
+          schema: { type: string, pattern: '^[A-Za-z0-9._:-]{8,128}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitRequest' }
+      responses:
+        '201':
+          description: New attempt recorded
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '200':
+          description: Replay of the attempt stored under this Idempotency-Key
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '400':
+          description: Missing or malformed Idempotency-Key, or invalid JSON.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`QUIZ_ALREADY_COMPLETED` (details carry the existing `attempt_id`) or `IDEMPOTENCY_KEY_REUSED`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /attempts:
+    get:
+      tags: [Attempts]
+      summary: The caller's attempts, newest first
+      operationId: listAttempts
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attempts]
+                properties:
+                  attempts:
+                    type: array
+                    items: { $ref: '#/components/schemas/AttemptSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /attempts/{id}:
+    get:
+      tags: [Attempts]
+      summary: One of the caller's attempts with a per-question breakdown
+      operationId: getAttempt
+      description: Another user's attempt returns 404 (not 403) so ids cannot be probed.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Attempt result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leaderboard:
+    get:
+      tags: [Gamification]
+      summary: Students ranked by XP (ties go to whoever reached the score first)
+      operationId: getLeaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Leaderboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness and database ping
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, database, uptime_seconds, timestamp]
+                properties:
+                  status: { type: string, const: ok }
+                  database: { type: string, const: up }
+                  uptime_seconds: { type: integer }
+                  timestamp: { type: string, format: date-time }
+        '503':
+          description: Database unreachable (`SERVICE_UNAVAILABLE`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: A UUID. Malformed ids return 404.
+      schema: { type: string, format: uuid }
+
+  headers:
+    RefreshCookie:
+      description: '`refresh_token=<opaque>; Path=/api/auth; HttpOnly; Secure (production); SameSite=<config>`'
+      schema: { type: string }
+    IdempotentReplayed:
+      description: '`true` when the response is a replay of a stored attempt.'
+      schema: { type: string, enum: ['true', 'false'] }
+
+  responses:
+    Unauthenticated:
+      description: Missing, invalid or expired access token (`UNAUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Request Origin is not an allowed client origin (`FORBIDDEN`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found (`NOT_FOUND`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: Input failed validation (`VALIDATION_FAILED`); `details` lists field errors.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: Every question must be answered exactly once with one of its own options.
+              details:
+                - field: 'answers[2].option_id'
+                  message: Option does not belong to this question.
+    RateLimited:
+      description: Too many requests (`RATE_LIMITED`). See the `RateLimit` header.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code: { type: string, examples: [VALIDATION_FAILED] }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email, description: Stored lower-cased. }
+        password: { type: string, minLength: 8, description: At most 72 bytes (bcrypt limit). }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    User:
+      type: object
+      required: [id, name, email, xp, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        xp: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+
+    Session:
+      type: object
+      required: [user, access_token, token_type, expires_in]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        access_token: { type: string }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer, description: Access token lifetime in seconds (900). }
+
+    Badge:
+      type: object
+      required: [code, name, description, awarded_at]
+      properties:
+        code: { type: string, examples: [FIRST_STEPS, PERFECT_SCORE, XP_100] }
+        name: { type: string }
+        description: { type: string }
+        awarded_at: { type: string, format: date-time }
+
+    Dashboard:
+      type: object
+      required: [id, name, email, xp, quizzes_completed, total_quizzes, badges, rank, total_players]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        xp: { type: integer }
+        quizzes_completed: { type: integer }
+        total_quizzes: { type: integer }
+        badges:
+          type: array
+          items: { $ref: '#/components/schemas/Badge' }
+        rank: { type: integer, minimum: 1 }
+        total_players: { type: integer }
+
+    QuizSummary:
+      type: object
+      required: [id, slug, title, description, xp_per_correct, question_count, max_xp, completed, attempt]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        xp_per_correct: { type: integer }
+        question_count: { type: integer }
+        max_xp: { type: integer, description: 'question_count × xp_per_correct + 20 perfect bonus' }
+        completed: { type: boolean }
+        attempt:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, score, total, xp_awarded, submitted_at]
+              properties:
+                id: { type: string, format: uuid }
+                score: { type: integer }
+                total: { type: integer }
+                xp_awarded: { type: integer }
+                submitted_at: { type: string, format: date-time }
+
+    QuizForPlay:
+      type: object
+      required: [id, slug, title, description, xp_per_correct, question_count, max_xp, completed, attempt_id, questions]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        xp_per_correct: { type: integer }
+        question_count: { type: integer }
+        max_xp: { type: integer }
+        completed: { type: boolean }
+        attempt_id: { type: ['string', 'null'], format: uuid }
+        questions:
+          type: array
+          items:
+            type: object
+            required: [id, text, position, options]
+            properties:
+              id: { type: string, format: uuid }
+              text: { type: string }
+              position: { type: integer }
+              options:
+                type: array
+                items:
+                  type: object
+                  required: [id, text]
+                  additionalProperties: false
+                  properties:
+                    id: { type: string, format: uuid }
+                    text: { type: string }
+
+    SubmitRequest:
+      type: object
+      required: [answers]
+      additionalProperties: false
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            required: [question_id, option_id]
+            additionalProperties: false
+            properties:
+              question_id: { type: string, format: uuid }
+              option_id: { type: string, format: uuid }
+
+    OptionRef:
+      type: ['object', 'null']
+      required: [id, text]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+
+    AttemptSummary:
+      type: object
+      required: [id, quiz_id, quiz_title, score, total, xp_awarded, submitted_at]
+      properties:
+        id: { type: string, format: uuid }
+        quiz_id: { type: string, format: uuid }
+        quiz_title: { type: string }
+        score: { type: integer }
+        total: { type: integer }
+        xp_awarded: { type: integer }
+        submitted_at: { type: string, format: date-time }
+
+    AttemptResult:
+      type: object
+      required: [id, quiz, score, total, percentage, perfect, xp_awarded, submitted_at, badges_awarded, results]
+      properties:
+        id: { type: string, format: uuid }
+        quiz:
+          type: object
+          required: [id, title]
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
+        score: { type: integer }
+        total: { type: integer }
+        percentage: { type: integer, minimum: 0, maximum: 100 }
+        perfect: { type: boolean }
+        xp_awarded: { type: integer }
+        submitted_at: { type: string, format: date-time }
+        badges_awarded:
+          type: array
+          description: Badges unlocked by this attempt (same on replay).
+          items: { $ref: '#/components/schemas/Badge' }
+        results:
+          type: array
+          items:
+            type: object
+            required: [question_id, position, text, selected_option, correct_option, is_correct]
+            properties:
+              question_id: { type: string, format: uuid }
+              position: { type: integer }
+              text: { type: string }
+              selected_option: { $ref: '#/components/schemas/OptionRef' }
+              correct_option: { $ref: '#/components/schemas/OptionRef' }
+              is_correct: { type: boolean }
+
+    Leaderboard:
+      type: object
+      required: [leaderboard, current_user]
+      properties:
+        leaderboard:
+          type: array
+          items:
+            type: object
+            required: [rank, user_id, name, xp, is_current_user]
+            properties:
+              rank: { type: integer, minimum: 1 }
+              user_id: { type: string, format: uuid }
+              name: { type: string }
+              xp: { type: integer }
+              is_current_user: { type: boolean }
+        current_user:
+          type: ['object', 'null']
+          required: [rank, total_players]
+          properties:
+            rank: { type: integer }
+            total_players: { type: integer }
