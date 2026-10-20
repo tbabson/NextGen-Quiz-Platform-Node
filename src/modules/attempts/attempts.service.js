@@ -25,12 +25,18 @@ export async function getAttemptForUser(attemptId, userId) {
   // Access control: attempt.user_id must be the caller.
   if (!attempt || attempt.user_id !== userId) throw AppError.notFound('Attempt not found.');
 
-  const [questions, options] = await Promise.all([
+  const [questions, options, badgesAwarded] = await Promise.all([
     db('questions').where({ quiz_id: attempt.quiz_id }).select('id', 'text', 'position'),
     db('options as o')
       .join('questions as qs', 'qs.id', 'o.question_id')
       .where('qs.quiz_id', attempt.quiz_id)
       .select('o.id', 'o.question_id', 'o.text', 'o.is_correct'),
+    // Badges this attempt unlocked; stable across idempotent replays.
+    db('user_badges as ub')
+      .join('badges as b', 'b.id', 'ub.badge_id')
+      .where('ub.attempt_id', attempt.id)
+      .orderBy('b.code')
+      .select('b.code', 'b.name', 'b.description', 'ub.awarded_at'),
   ]);
 
   const questionsById = new Map(questions.map((q) => [q.id, q]));
@@ -60,6 +66,7 @@ export async function getAttemptForUser(attemptId, userId) {
     perfect: attempt.score === attempt.total,
     xp_awarded: attempt.xp_awarded,
     submitted_at: attempt.submitted_at,
+    badges_awarded: badgesAwarded,
     results,
   };
 }

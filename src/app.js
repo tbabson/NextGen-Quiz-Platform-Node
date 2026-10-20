@@ -10,7 +10,9 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createRateLimiters } from './middleware/rateLimit.js';
 import attemptsRoutes from './modules/attempts/attempts.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
+import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import healthRoutes from './modules/health/health.routes.js';
+import leaderboardRoutes from './modules/leaderboard/leaderboard.routes.js';
 import quizzesRoutes from './modules/quizzes/quizzes.routes.js';
 
 const REQUEST_ID_PATTERN = /^[\w-]{8,64}$/;
@@ -58,6 +60,8 @@ export function createApp({ rateLimits = {} } = {}) {
   app.use('/api/auth', authRoutes(limiters));
   app.use('/api/quizzes', quizzesRoutes(limiters));
   app.use('/api/attempts', attemptsRoutes());
+  app.use('/api/me', dashboardRoutes());
+  app.use('/api/leaderboard', leaderboardRoutes());
 
   app.use(notFoundHandler);
   app.use(errorHandler);

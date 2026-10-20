@@ -1,4 +1,5 @@
 import db from '../../db/knex.js';
+import { evaluateBadges } from '../../services/badge.service.js';
 import { PERFECT_SCORE_BONUS, scoreAnswers, validateAnswers } from '../../services/scoring.service.js';
 import AppError from '../../utils/AppError.js';
 import { isUniqueViolation } from '../../utils/pgErrors.js';
@@ -71,7 +72,7 @@ export async function getQuizForPlay(quizId, userId) {
 
 /**
  * Grades and records a submission. Everything that changes state happens in ONE transaction:
- * lock user → insert attempt → add XP → (badges, next block) → commit. Any error rolls it all back.
+ * lock user → insert attempt → add XP → evaluate badges → commit. Any error rolls it all back.
  *
  * Duplicate protection has two layers:
  *  1. Same Idempotency-Key → the stored attempt is replayed (`replayed: true`, HTTP 200).
@@ -122,6 +123,8 @@ export async function submitQuiz({ userId, quizId, answers, idempotencyKey }, { 
           .where({ id: userId })
           .update({ xp: trx.raw('xp + ?', [graded.xpEarned]), xp_updated_at: trx.fn.now() });
       }
+
+      await evaluateBadges(trx, { userId, attemptId: attempt.id });
 
       return { attemptId: attempt.id, replayed: false };
     });
