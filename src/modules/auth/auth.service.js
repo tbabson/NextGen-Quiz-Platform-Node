@@ -80,6 +80,28 @@ export async function refresh(rawToken) {
   return outcome.session;
 }
 
+/**
+ * Changes the password after re-checking the current one, then revokes every refresh token the user
+ * holds, signing out all other devices, and returns a fresh session for the device that asked.
+ */
+export async function changePassword(userId, { currentPassword, newPassword }) {
+  const user = await db('users').where({ id: userId }).first([...PUBLIC_USER_COLUMNS, 'password_hash']);
+  if (!user) throw AppError.unauthorized('User no longer exists.');
+
+  if (!(await verifyPassword(currentPassword, user.password_hash))) {
+    throw AppError.validation([{ field: 'current_password', message: 'Current password is incorrect.' }], 'Current password is incorrect.');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  const { password_hash, ...publicUser } = user;
+
+  return db.transaction(async (trx) => {
+    await trx('users').where({ id: userId }).update({ password_hash: passwordHash });
+    await trx('refresh_tokens').where({ user_id: userId }).whereNull('revoked_at').update({ revoked_at: trx.fn.now() });
+    return issueSession(trx, publicUser);
+  });
+}
+
 /** Idempotent: logging out with an unknown or already-revoked token still succeeds. */
 export async function logout(rawToken) {
   if (!rawToken) return;

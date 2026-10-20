@@ -26,6 +26,13 @@ export async function refresh(req, res) {
   sendSession(res.status(200), session);
 }
 
+/** Other devices are signed out; this one gets a new session (fresh cookie and access token). */
+export async function changePassword(req, res) {
+  const { current_password: currentPassword, new_password: newPassword } = req.valid.body;
+  const session = await authService.changePassword(req.user.id, { currentPassword, newPassword });
+  sendSession(res.status(200), session);
+}
+
 export async function logout(req, res) {
   await authService.logout(req.cookies?.[REFRESH_COOKIE]);
   res.clearCookie(REFRESH_COOKIE, cookieOptions);

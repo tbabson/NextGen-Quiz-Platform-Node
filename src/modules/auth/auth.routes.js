@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import requireAuth from '../../middleware/auth.js';
 import requireTrustedOrigin from '../../middleware/trustedOrigin.js';
 import validate from '../../middleware/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import * as controller from './auth.controller.js';
-import { loginSchema, registerSchema } from './auth.schema.js';
+import { changePasswordSchema, loginSchema, registerSchema } from './auth.schema.js';
 
 /**
  * @param {{ credentialsLimiter: import('express').RequestHandler, sessionLimiter: import('express').RequestHandler }} limiters
@@ -17,6 +18,14 @@ export default function authRoutes({ credentialsLimiter, sessionLimiter }) {
   router.post('/login', credentialsLimiter, validate({ body: loginSchema }), asyncHandler(controller.login));
   router.post('/refresh', sessionLimiter, asyncHandler(controller.refresh));
   router.post('/logout', sessionLimiter, asyncHandler(controller.logout));
+  // Shares the login limit: it checks a password, so it must not become a brute-force oracle.
+  router.post(
+    '/change-password',
+    credentialsLimiter,
+    requireAuth,
+    validate({ body: changePasswordSchema }),
+    asyncHandler(controller.changePassword),
+  );
 
   return router;
 }

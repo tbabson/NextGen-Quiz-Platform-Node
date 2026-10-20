@@ -103,6 +103,9 @@ All routes are under `/api`. Full request and response schemas are in [docs/open
 | POST | `/auth/login` | public | Access token (15 min) + refresh token (httpOnly cookie, 7 days) |
 | POST | `/auth/refresh` | cookie | Rotate refresh token, new access token |
 | POST | `/auth/logout` | cookie | Revoke refresh token, clear cookie → 204 |
+| POST | `/auth/change-password` | JWT | `{current_password, new_password}` → signs out other devices, new session here |
+| GET | `/me` | JWT | Caller's profile (name, email, xp, joined date) |
+| PATCH | `/me` | JWT | Change display name (email and XP are not editable) |
 | GET | `/me/dashboard` | JWT | name, xp, quizzes_completed, badges, rank |
 | GET | `/quizzes` | JWT | Quizzes with a per-user `completed` flag |
 | GET | `/quizzes/:id` | JWT | Questions + options, **never** `is_correct` |
@@ -191,7 +194,7 @@ Both layers are mutation-tested. With the row lock removed, the unique-constrain
 
 ## Testing
 
-**82 tests** in [tests/](tests/), all against a real PostgreSQL database. The brief's minimum tests:
+**93 tests** in [tests/](tests/), all against a real PostgreSQL database. The brief's minimum tests:
 
 | Required test | Where |
 |---|---|
@@ -259,6 +262,7 @@ src/
     attempts/               owner-scoped history + breakdown
     dashboard/              GET /me/dashboard
     leaderboard/            RANK() window query
+    profile/                GET/PATCH /me (password change lives in auth/)
     health/                 liveness + DB ping
   services/                 scoring.service.js (pure), badge.service.js (runs in the submit transaction)
   utils/                    AppError, asyncHandler, password, pgErrors

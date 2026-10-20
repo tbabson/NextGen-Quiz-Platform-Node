@@ -26,6 +26,8 @@ tags:
     description: Browse quizzes, fetch questions and submit answers for server-side grading.
   - name: Attempts
     description: The caller's own quiz history and per-question results.
+  - name: Profile
+    description: The caller's own account details.
   - name: Gamification
     description: XP, badges, dashboard and leaderboard.
   - name: Health
@@ -125,6 +127,67 @@ paths:
         '204': { description: Logged out (also returned when there was no session). }
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change password, sign out other devices, and start a fresh session here
+      operationId: changePassword
+      description: |
+        Requires the current password. On success every refresh token the user holds is revoked
+        (other devices are signed out) and a new session is returned for this device.
+        Shares the login rate limit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200':
+          description: Password changed. Sets a new `refresh_token` cookie.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Invalid new password, or `current_password` is incorrect (`VALIDATION_FAILED` with a field error).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /me:
+    get:
+      tags: [Profile]
+      summary: The caller's profile
+      operationId: getProfile
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    patch:
+      tags: [Profile]
+      summary: Update the display name (the only editable field)
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /me/dashboard:
     get:
@@ -409,6 +472,21 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string }
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 8, description: At most 72 bytes; must differ from the current password. }
+
+    UpdateProfileRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, description: Trimmed. Email and XP cannot be changed. }
 
     User:
       type: object
