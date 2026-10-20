@@ -1,5 +1,9 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { z } from 'zod';
+
+// Tests read .env.test so they can never touch the development database. Real environment variables
+// always win over file values (dotenv does not override), which is how CI and hosts inject config.
+dotenv.config({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 // Accepts "true"/"false"/"1"/"0" from the environment; z.coerce.boolean() would treat "false" as true.
 const booleanFromString = z
