@@ -5,7 +5,8 @@ export default {
   client: 'pg',
   connection: {
     connectionString: env.DATABASE_URL,
-    ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : false,
+    // Verify the server certificate: hosted Postgres (Neon) is reached over the public internet.
+    ssl: env.DATABASE_SSL ? { rejectUnauthorized: true } : false,
     // Bound how long a query, or a transaction holding the submit row lock, can tie up a connection.
     statement_timeout: 10_000,
     idle_in_transaction_session_timeout: 10_000,

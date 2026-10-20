@@ -10,15 +10,14 @@ export function notFoundHandler(req, _res, next) {
  * Turns every error into {"error": {"code", "message", "details"}}. Unknown errors are logged with
  * their stack but answered with a generic 500 so internals never leak to clients.
  */
-export function errorHandler(err, req, res, next) {
+export function errorHandler(err, _req, res, next) {
   // A response is already streaming; only Express's default handler can abort it safely.
   if (res.headersSent) return next(err);
 
   const error = normalise(err);
 
-  if (error.status >= 500) {
-    req.log?.error({ err }, 'unhandled error');
-  }
+  // Hand the real error (with stack) to pino-http, which logs it once on the request's own log line.
+  if (error.status >= 500) res.err = err;
 
   res.status(error.status).json({
     error: { code: error.code, message: error.message, details: error.details },

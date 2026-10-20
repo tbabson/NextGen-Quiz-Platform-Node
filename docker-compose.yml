@@ -6,8 +6,11 @@ services:
       POSTGRES_USER: quiz
       POSTGRES_PASSWORD: quiz
       POSTGRES_DB: quiz
+    # Host port 5434, so it doesn't clash with a locally installed PostgreSQL on 5432.
+    # Only needed to inspect the DB from the host (psql -h localhost -p 5434 -U quiz quiz);
+    # the API reaches it over the compose network as db:5432.
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

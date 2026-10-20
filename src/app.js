@@ -42,6 +42,16 @@ export function createApp({ rateLimits = {} } = {}) {
         return id;
       },
       customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
+      // One concise line per request instead of every request and response header.
+      serializers: {
+        req: (req) => ({ id: req.id, method: req.method, url: req.url }),
+        res: (res) => ({ statusCode: res.statusCode }),
+      },
+      customSuccessMessage: (req, res, responseTime) =>
+        `${req.method} ${req.originalUrl} ${res.statusCode} ${Math.round(responseTime)}ms`,
+      // Connection failures arrive as an AggregateError with an empty message; show the first cause instead.
+      customErrorMessage: (req, res, err) =>
+        `${req.method} ${req.originalUrl} ${res.statusCode} - ${err.message || err.errors?.[0]?.message || err.code || 'error'}`,
     }),
   );
 

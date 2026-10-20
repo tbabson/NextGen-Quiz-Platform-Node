@@ -30,7 +30,7 @@ All fictitious, created by the seed. Password for each: **`Password123!`**
 | Security | `helmet`, `cors` (allow-list), `express-rate-limit`, 100 KB body cap | Brief's security baseline |
 | Logging | `pino` + `pino-http`, per-request id, secrets redacted | Structured JSON logs |
 | Tests | Vitest + Supertest against a real PostgreSQL test database | Tests the real SQL, locks and constraints, not mocks |
-| Deploy | Dockerfile, `render.yaml` blueprint, Nginx config | Render for the demo; Nginx for self-hosting |
+| Deploy | Dockerfile, `render.yaml` blueprint, Nginx config | API on Render and PostgreSQL on Neon for the demo; Nginx for self-hosting |
 
 ## Getting started
 
@@ -43,7 +43,7 @@ docker compose up --build
 curl http://localhost:4000/api/health
 ```
 
-The container migrates and seeds itself on start (`SEED_ON_START=true`).
+The container migrates and seeds itself on start (`SEED_ON_START=true`). The database is published on host port **5434** (not 5432), so it can run alongside a locally installed PostgreSQL: `psql -h localhost -p 5434 -U quiz quiz` (password `quiz`).
 
 ### Option B: Local Node.js
 
@@ -86,7 +86,7 @@ All config comes from environment variables, validated by Zod at boot ([src/conf
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | — | PostgreSQL connection string |
-| `DATABASE_SSL` | `false` | `true` for managed databases that require TLS on external connections |
+| `DATABASE_SSL` | `false` | `true` for hosted databases that require TLS (Neon); the server certificate is verified |
 | `JWT_ACCESS_SECRET` | — | ≥ 32 random characters |
 | `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated client origins. Also used by the CSRF origin check |
 | `COOKIE_SAMESITE` | `strict` | Use `none` when the client and API are on different sites (requires HTTPS) |
@@ -212,10 +212,15 @@ Beyond those, the suite also covers:
 
 ## Deployment
 
-### Render (used for the demo)
-1. Push the repo to GitHub, then in Render choose **New → Blueprint** and select the repo. [render.yaml](render.yaml) creates the Docker web service and a PostgreSQL 16 database, and generates `JWT_ACCESS_SECRET`.
-2. Set `CORS_ORIGIN` to the client URL.
-3. The container runs migrations and the idempotent seed on every start ([scripts/docker-entrypoint.sh](scripts/docker-entrypoint.sh)).
+### Demo: API on Render, database on Neon
+
+1. **Database (Neon):** create a free project at [neon.tech](https://neon.tech) (PostgreSQL 16+, pick the region closest to the Render service). Under **Connect**, turn **off** connection pooling and copy the **direct** connection string. The pooled endpoint runs PgBouncer in transaction mode, which rejects the per-connection `statement_timeout` settings the API applies.
+2. **API (Render):** push the repo to GitHub, then choose **New → Blueprint** and select the repo. [render.yaml](render.yaml) creates the Docker web service, sets `DATABASE_SSL=true` (Neon requires TLS; the certificate is verified) and generates `JWT_ACCESS_SECRET`. When prompted, set:
+   - `DATABASE_URL`: the Neon connection string from step 1
+   - `CORS_ORIGIN`: the client URL
+3. The container runs migrations and the idempotent seed on every start ([scripts/docker-entrypoint.sh](scripts/docker-entrypoint.sh)), so the Neon database gets its tables, quizzes, badges and test accounts on the first deploy.
+
+Neon's free tier suspends the database after a few idle minutes; the first request afterwards takes about a second longer while it wakes.
 
 The client and API on two `*.onrender.com` hosts count as **cross-site** (`onrender.com` is a public suffix), so the blueprint sets `COOKIE_SAMESITE=none`. Cookies are `Secure` by default in production. The client must call the API with `credentials: 'include'`.
 

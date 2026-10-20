@@ -1,5 +1,9 @@
-# Render Blueprint: one Docker web service + one managed PostgreSQL 16 database.
-# New > Blueprint > pick this repo. Then set CORS_ORIGIN to the deployed client URL.
+# Render Blueprint: the API only, as one Docker web service. The database is hosted on Neon.
+# New > Blueprint > pick this repo. Render then asks for the two `sync: false` values:
+#   DATABASE_URL  Neon's *direct* (non-pooled) connection string, e.g.
+#                 postgresql://user:pass@ep-xxx.eu-central-1.aws.neon.tech/neondb?sslmode=require
+#                 (Neon dashboard > Connect > untick "Connection pooling").
+#   CORS_ORIGIN   the deployed client URL.
 services:
   - type: web
     name: punch-nextgen-quiz-api
@@ -10,9 +14,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: punch-nextgen-quiz-db
-          property: connectionString
+        sync: false
+      # Neon only accepts TLS connections; the certificate is verified.
+      - key: DATABASE_SSL
+        value: "true"
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: CORS_ORIGIN
@@ -25,8 +30,3 @@ services:
         value: "1"
       - key: SEED_ON_START
         value: "true"
-
-databases:
-  - name: punch-nextgen-quiz-db
-    plan: free
-    postgresMajorVersion: "16"
