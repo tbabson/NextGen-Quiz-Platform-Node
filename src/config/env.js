@@ -24,10 +24,25 @@ const envSchema = z.object({
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
 
   // Comma-separated list of allowed browser origins, e.g. "https://quiz.example.com,http://localhost:5173".
+  // Browsers send a bare origin ("https://host"), and CORS compares it exactly, so normalise each entry:
+  // a pasted trailing slash, path or surrounding quotes would otherwise silently block every request.
   CORS_ORIGIN: z
     .string()
     .default('http://localhost:5173')
-    .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean)),
+    .transform((value, ctx) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean)
+        .map((entry) => {
+          try {
+            return new URL(entry).origin;
+          } catch {
+            ctx.addIssue({ code: 'custom', message: `"${entry}" is not a valid origin, e.g. https://app.example.com` });
+            return z.NEVER;
+          }
+        }),
+    ),
   COOKIE_SECURE: booleanFromString.optional(),
   // "none" is needed when the client and API live on different sites (e.g. two *.onrender.com hosts).
   COOKIE_SAMESITE: z.enum(['strict', 'lax', 'none']).default('strict'),

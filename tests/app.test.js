@@ -97,6 +97,19 @@ describe('environment validation (fail fast at boot)', () => {
     expect(result.stderr).toMatch(/Placeholder secret/);
   });
 
+  it('normalises CORS origins (trailing slash, path, quotes) and rejects garbage', () => {
+    const show = "import('./src/config/env.js').then((m) => console.log(JSON.stringify(m.default.CORS_ORIGIN)))";
+    const run = (value) =>
+      spawnSync(process.execPath, ['-e', show], { env: { ...process.env, NODE_ENV: 'test', CORS_ORIGIN: value }, encoding: 'utf8' });
+
+    const ok = run('"https://quiz.example.com/", https://other.example.com/some/path , http://localhost:5173');
+    expect(JSON.parse(ok.stdout)).toEqual(['https://quiz.example.com', 'https://other.example.com', 'http://localhost:5173']);
+
+    const bad = run('quiz.example.com');
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toMatch(/CORS_ORIGIN/);
+  });
+
   it('refuses SameSite=None cookies without Secure', () => {
     const result = boot({ COOKIE_SAMESITE: 'none', COOKIE_SECURE: 'false' });
     expect(result.status).toBe(1);
