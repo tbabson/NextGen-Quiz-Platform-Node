@@ -11,6 +11,7 @@ import { createRateLimiters } from './middleware/rateLimit.js';
 import attemptsRoutes from './modules/attempts/attempts.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
+import * as healthController from './modules/health/health.controller.js';
 import healthRoutes from './modules/health/health.routes.js';
 import leaderboardRoutes from './modules/leaderboard/leaderboard.routes.js';
 import profileRoutes from './modules/profile/profile.routes.js';
@@ -67,7 +68,9 @@ export function createApp({ rateLimits = {} } = {}) {
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
-  app.use('/api/health', healthRoutes());
+  // The bare URLs describe the service; /health is a convenience alias for /api/health.
+  app.get(['/', '/api'], healthController.info);
+  app.use(['/api/health', '/health'], healthRoutes());
   app.use('/api/auth', authRoutes(limiters));
   app.use('/api/quizzes', quizzesRoutes(limiters));
   app.use('/api/attempts', attemptsRoutes());

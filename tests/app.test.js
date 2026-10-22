@@ -13,9 +13,20 @@ const app = createApp();
 afterAll(() => db.destroy());
 
 describe('GET /api/health', () => {
-  it('reports liveness and a successful DB ping', async () => {
-    const res = await request(app).get('/api/health').expect(200);
-    expect(res.body).toMatchObject({ status: 'ok', database: 'up' });
+  it('reports liveness and a successful DB ping (also at /health)', async () => {
+    for (const path of ['/api/health', '/health']) {
+      const res = await request(app).get(path).expect(200);
+      expect(res.body).toMatchObject({ status: 'ok', database: 'up' });
+    }
+  });
+});
+
+describe('GET / and GET /api', () => {
+  it('describe the service instead of returning 404', async () => {
+    for (const path of ['/', '/api']) {
+      const res = await request(app).get(path).expect(200);
+      expect(res.body).toMatchObject({ name: expect.stringContaining('API'), status: 'ok', health: '/api/health' });
+    }
   });
 });
 
