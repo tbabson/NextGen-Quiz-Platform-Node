@@ -2,11 +2,11 @@
 
 REST API for a mini quiz-and-rewards platform. Students register, take multiple-choice quizzes, get server-graded results, earn XP and badges, and compete on a leaderboard. A separate React client consumes it.
 
-|                  |                                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Live API**     | _add your deployed URL, e.g. `https://punch-nextgen-quiz-api.onrender.com/api/health`_                             |
-| **Client**       | _add your deployed client URL / repo_                                                                              |
-| **API contract** | [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1; paste it into [editor.swagger.io](https://editor.swagger.io)) |
+|                  |                                                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Live API**     | https://nextgen-quiz-platform-node.onrender.com/, e.g. `https://punch-nextgen-quiz-api.onrender.com/api/health`\_       |
+| **Client**       | https://next-gen-quiz-platform-react-seven.vercel.app/ / repo\_ https://github.com/tbabson/ NextGen-Quiz-Platform-React |
+| **API contract** | [docs/openapi.yaml](docs/openapi.yaml) (OpenAPI 3.1; paste it into [editor.swagger.io](https://editor.swagger.io))      |
 
 ## Test accounts
 
