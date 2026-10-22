@@ -1,0 +1,24 @@
+# The production image against the Neon database, the same shape as the Render deploy: API only,
+# no local Postgres. Secrets come from the gitignored .env.neon (DATABASE_URL, DATABASE_SSL,
+# JWT_ACCESS_SECRET); see the README.
+#
+#   docker compose down                                  # free port 4000 if the local stack is up
+#   docker compose -f docker-compose.neon.yml up --build
+#
+# On start the container migrates and seeds the Neon database (both idempotent), as Render does.
+name: quiz-neon
+
+services:
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    env_file: .env.neon
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      CORS_ORIGIN: http://localhost:5173
+      # Plain HTTP locally, so cookies cannot be Secure; the Vite proxy keeps them same-site.
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: strict
+      SEED_ON_START: "true"

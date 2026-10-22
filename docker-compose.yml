@@ -31,7 +31,7 @@ services:
       PORT: 4000
       DATABASE_URL: postgres://quiz:quiz@db:5432/quiz
       # Local-only value; production secrets come from the host's secret store.
-      JWT_ACCESS_SECRET: local-compose-jwt-secret-0123456789abcdefghijkl
+      JWT_ACCESS_SECRET: efe17f45dfb71bbacf6eec4c6a572e5ca0167f76285e7743b78f5ce79b063be9
       CORS_ORIGIN: http://localhost:5173
       # Plain HTTP locally, so cookies cannot be Secure; same-site in dev, so Strict works.
       COOKIE_SECURE: "false"

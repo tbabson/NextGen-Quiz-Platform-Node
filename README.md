@@ -217,13 +217,23 @@ Beyond those, the suite also covers:
 
 ### Demo: API on Render, database on Neon
 
-1. **Database (Neon):** create a free project at [neon.tech](https://neon.tech) (PostgreSQL 16+, pick the region closest to the Render service). Under **Connect**, turn **off** connection pooling and copy the **direct** connection string. The pooled endpoint runs PgBouncer in transaction mode, which rejects the per-connection `statement_timeout` settings the API applies.
+1. **Database (Neon):** create a free project at [neon.tech](https://neon.tech) (PostgreSQL 16+, pick the region closest to the Render service). Under **Connect**, turn **off** connection pooling and copy the **direct** connection string (no `-pooler` in the host). The API sets its 10 s statement and idle-in-transaction timeouts through the connection's startup `options`; Neon's direct endpoint honours them, while the pooled endpoint (PgBouncer) refuses the connection with "unsupported startup parameter".
 2. **API (Render):** push the repo to GitHub, then choose **New → Blueprint** and select the repo. [render.yaml](render.yaml) creates the Docker web service, sets `DATABASE_SSL=true` (Neon requires TLS; the certificate is verified) and generates `JWT_ACCESS_SECRET`. When prompted, set:
    - `DATABASE_URL`: the Neon connection string from step 1
    - `CORS_ORIGIN`: the client URL
 3. The container runs migrations and the idempotent seed on every start ([scripts/docker-entrypoint.sh](scripts/docker-entrypoint.sh)), so the Neon database gets its tables, quizzes, badges and test accounts on the first deploy.
 
 Neon's free tier suspends the database after a few idle minutes; the first request afterwards takes about a second longer while it wakes.
+
+**Rehearse the deploy locally:** [docker-compose.neon.yml](docker-compose.neon.yml) runs the production image against Neon exactly as Render will (API only, no local database). Put the secrets in a gitignored `.env.neon`:
+
+```env
+DATABASE_URL=postgresql://<user>:<password>@ep-xxx.<region>.aws.neon.tech/neondb?sslmode=verify-full
+DATABASE_SSL=true
+JWT_ACCESS_SECRET=<48+ random characters>
+```
+
+Then `docker compose down` (frees port 4000) and `docker compose -f docker-compose.neon.yml up --build`. The container migrates and seeds Neon on start, and `/api/health` reports `"database":"up"` once it's connected.
 
 The client and API on two `*.onrender.com` hosts count as **cross-site** (`onrender.com` is a public suffix), so the blueprint sets `COOKIE_SAMESITE=none`. Cookies are `Secure` by default in production. The client must call the API with `credentials: 'include'`.
 
